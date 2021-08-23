@@ -2,15 +2,14 @@
 
 MulticastServer::MulticastServer(QObject *parent,
                                  const QNetworkInterface &adapter,
-                                 const QHostAddress &incomingIP,
                                  unsigned int incomingPort,
                                  const QHostAddress &outgoingIP,
                                  unsigned int outgoingPort) :
     QObject(parent),
     networkAdapter(adapter),
     UDPSocket(new QUdpSocket(this)),
-    inputIPAddress(incomingIP),
     inputPort(incomingPort),
+    inputIPAddress(MulticastServer::getIPAddress(adapter)),
     outputIPAddress(outgoingIP),
     outputPort(outgoingPort)
 {
@@ -49,18 +48,47 @@ QNetworkInterface MulticastServer::getNetworkAdapter(QString adapterName)
 
 bool MulticastServer::isValidNetworkAdapter(const QNetworkInterface &adapter)
 {
+    //Basic check
     if(!adapter.isValid())
         return false;
 
-    if(!(adapter.humanReadableName().toUpper().contains("BLUETOOTH") || adapter.humanReadableName().toUpper().contains("VM")))
-        return true;
+    //Has to be up and running
+    if(!(adapter.flags() & QNetworkInterface::InterfaceFlag::IsUp))
+        return false;
 
-    return false;
+    //Has to support multicast
+    if(!(adapter.flags() & QNetworkInterface::InterfaceFlag::CanMulticast))
+        return false;
+
+    //Additional filters (bluetooth / VM)
+    if(adapter.humanReadableName().toUpper().contains("BLUETOOTH") || adapter.humanReadableName().toUpper().contains("VM"))
+        return false;
+
+    return true;
 }
 
 bool MulticastServer::isValidNetworkAdapter(QString adapterName)
 {
     return MulticastServer::getNetworkAdapter(adapterName).isValid();
+}
+
+QHostAddress MulticastServer::getIPAddress(const QNetworkInterface &adapter)
+{
+    foreach(QNetworkAddressEntry address, adapter.addressEntries())
+    {
+        //Loop back IPs do not have to be DNS eligible, otherwise check for eligibility to get valid WiFi IP or LAN static IP
+        QHostAddress currentIP = address.ip();
+        if(adapter.type() == QNetworkInterface::InterfaceType::Loopback || address.dnsEligibility() == QNetworkAddressEntry::DnsEligibilityStatus::DnsEligible)
+        {
+            if(MulticastServer::isValidIPAddress(currentIP))
+            {
+                if(currentIP.protocol() == QAbstractSocket::NetworkLayerProtocol::IPv4Protocol)
+                    return currentIP;
+            }
+        }
+    }
+
+    return QHostAddress();
 }
 
 bool MulticastServer::isValidIPAddress(const QHostAddress &IPAddress)
@@ -91,13 +119,8 @@ unsigned int MulticastServer::getOutgoingPort() const
 
 bool MulticastServer::setIncomingIPAddress(const QHostAddress &incomingIP)
 {
-    if(!MulticastServer::isValidIPAddress(incomingIP))
-        return false;
-
-    inputIPAddress = incomingIP;
-
-    initialize();
-    return true;
+    //Disabled; we use the network interface to get a valid incoming IP address
+    return false;
 }
 
 bool MulticastServer::setOutgoingIPAddress(const QHostAddress &outgoingIP)
@@ -130,7 +153,7 @@ bool MulticastServer::setOutgoingPort(unsigned int outgoingPort)
     return true;
 }
 
-bool MulticastServer::setNetworkAdapter(const QNetworkInterface &adapter, const QHostAddress &incomingIP, unsigned int incomingPort, const QHostAddress &outgoingIP, unsigned int outgoingPort)
+bool MulticastServer::setNetworkAdapter(const QNetworkInterface &adapter, unsigned int incomingPort, const QHostAddress &outgoingIP, unsigned int outgoingPort)
 {
     if(!MulticastServer::isValidNetworkAdapter(adapter))
     {
@@ -138,8 +161,11 @@ bool MulticastServer::setNetworkAdapter(const QNetworkInterface &adapter, const 
         return false;
     }
 
-    if(!MulticastServer::isValidIPAddress(incomingIP) || !MulticastServer::isValidIPAddress(outgoingIP))
-    {
+    //Get valid input IP address of current network interface
+    QHostAddress activeInputIPAddress = MulticastServer::getIPAddress(adapter);
+
+    if(!MulticastServer::isValidIPAddress(activeInputIPAddress) || !MulticastServer::isValidIPAddress(outgoingIP))
+    {qDebug()<<activeInputIPAddress.toString();
         emit settingError(QString("Invalid IP"));
         return false;
     }
@@ -152,7 +178,7 @@ bool MulticastServer::setNetworkAdapter(const QNetworkInterface &adapter, const 
 
     networkAdapter = adapter;
 
-    inputIPAddress = incomingIP;
+    inputIPAddress = activeInputIPAddress;
     inputPort = incomingPort;
 
     outputIPAddress = outgoingIP;
@@ -162,12 +188,11 @@ bool MulticastServer::setNetworkAdapter(const QNetworkInterface &adapter, const 
     return true;
 }
 
-bool MulticastServer::setNetworkAdapter(QString adapterName, const QHostAddress &incomingIP, unsigned int incomingPort, const QHostAddress &outgoingIP, unsigned int outgoingPort)
+bool MulticastServer::setNetworkAdapter(QString adapterName, unsigned int incomingPort, const QHostAddress &outgoingIP, unsigned int outgoingPort)
 {
     //Find a valid network interface of the given name if it exists
     QNetworkInterface interface = MulticastServer::getNetworkAdapter(adapterName);
     return setNetworkAdapter(interface,
-                             incomingIP,
                              incomingPort,
                              outgoingIP,
                              outgoingPort);
@@ -179,11 +204,13 @@ void MulticastServer::initialize()
     if(UDPSocket->state() == QAbstractSocket::BoundState)
         UDPSocket->close();
 
-    //Bind the socket to the specified input address and port
+    //Bind the socket to the specified input address and port    
     UDPSocket->bind(inputIPAddress,
                     static_cast<quint16>(inputPort));
 
-    UDPSocket->setMulticastInterface(networkAdapter);
+    UDPSocket->setMulticastInterface(networkAdapter);               //Set the outgoing interface
+    UDPSocket->joinMulticastGroup(inputIPAddress,
+                                  UDPSocket->multicastInterface()); //Join incoming multicast group
 
     emit adapterUpdated(UDPSocket->multicastInterface().humanReadableName());
 }

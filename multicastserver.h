@@ -15,7 +15,6 @@ class MulticastServer : public QObject
 public:
     explicit MulticastServer(QObject *parent = nullptr,
                              const QNetworkInterface& adapter = QNetworkInterface(),
-                             const QHostAddress& incomingIP = QHostAddress::LocalHost,
                              unsigned int incomingPort = 7000,
                              const QHostAddress& outgoingIP = QHostAddress::LocalHost,
                              unsigned int outgoingPort = 8000);
@@ -26,6 +25,8 @@ public:
 
     static bool isValidNetworkAdapter(const QNetworkInterface& adapter);
     static bool isValidNetworkAdapter(QString adapterName);
+
+    static QHostAddress getIPAddress(const QNetworkInterface& adapter);
 
     static bool isValidIPAddress(const QHostAddress& IPAddress);
 
@@ -44,13 +45,11 @@ public:
 
     //Network adapter access
     bool setNetworkAdapter(const QNetworkInterface& adapter,
-                           const QHostAddress& incomingIP,
                            unsigned int incomingPort,
                            const QHostAddress& outgoingIP,
                            unsigned int outgoingPort);
 
     bool setNetworkAdapter(QString adapterName,
-                           const QHostAddress& incomingIP,
                            unsigned int incomingPort,
                            const QHostAddress& outgoingIP,
                            unsigned int outgoingPort);

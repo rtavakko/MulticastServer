@@ -42,6 +42,7 @@ MainWindow::MainWindow(QWidget *parent) :
     textIncomingIP->setMinimumSize(labelSize);
     textIncomingIP->setInputMask(QString("999.999.999.999"));
     textIncomingIP->setText(incomingIP.toString());
+    textIncomingIP->setReadOnly(true);
 
     textIncomingPort = new QLineEdit(mainWidget);
     textIncomingPort->setMinimumSize(labelSize);
@@ -131,17 +132,16 @@ MainWindow::MainWindow(QWidget *parent) :
         if(adapterList->currentItem())
             adapterName = adapterList->currentItem()->text();
 
-        incomingIP = QHostAddress(textIncomingIP->text());
         incomingPort = static_cast<unsigned int>(textIncomingPort->text().toInt());
 
         outgoingIP = QHostAddress(textOutgoingIP->text());
         outgoingPort = static_cast<unsigned int>(textOutgoingPort->text().toInt());
 
-        server->setNetworkAdapter(adapterName,
-                                  incomingIP,
+        if(server->setNetworkAdapter(adapterName,
                                   incomingPort,
                                   outgoingIP,
-                                  outgoingPort);
+                                  outgoingPort))
+            textIncomingIP->setText(server->getIncomingIPAddress().toString());
     });
 
     QObject::connect(server,&MulticastServer::settingError,this,[=](QString error)
